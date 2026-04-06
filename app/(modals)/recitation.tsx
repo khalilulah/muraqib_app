@@ -11,10 +11,13 @@ import { useEffect, useState, useRef } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import { Audio } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import api from "../../src/services/api";
 import { COLORS } from "../../src/constants";
 
 interface Verse {
+  uniqueKey: string; // 👈 add this
+  surahNumber: number; // 👈 add this
   ayahNumber: number;
   text: string;
   audioUrl: string;
@@ -26,13 +29,29 @@ interface Session {
   goal_id: string;
 }
 
-type ScreenState = "loading" | "ready" | "recording" | "submitting" | "error";
+interface CachedVerses {
+  verses: Verse[];
+  session: Session;
+  goalId: string;
+  cachedAt: number;
+}
+
+type ScreenState =
+  | "loading"
+  | "ready"
+  | "recording"
+  | "paused"
+  | "submitting"
+  | "error";
 type AudioState =
   | "idle"
   | "loading"
   | "playing"
   | "loading_all"
   | "playing_all";
+
+const CACHE_KEY = "cached_daily_verses";
+const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
 export default function RecitationScreen() {
   const { goalId } = useLocalSearchParams<{ goalId: string }>();
@@ -42,34 +61,105 @@ export default function RecitationScreen() {
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [audioState, setAudioState] = useState<AudioState>("idle");
+  const [prefetchProgress, setPrefetchProgress] = useState(0); // 0-100
+  const [isPrefetching, setIsPrefetching] = useState(false);
+  const cachedAudioUrisRef = useRef<Record<string, string>>({});
 
+  // Single audio lock — prevents multiple sounds playing simultaneously
+  const audioLockRef = useRef(false);
   const recordingRef = useRef<Audio.Recording | null>(null);
+  const pausedPositionRef = useRef<number>(0);
   const soundRef = useRef<Audio.Sound | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const playAllCancelledRef = useRef(false);
+  const cancelPlayAllRef = useRef(false);
 
   useEffect(() => {
-    startSession();
+    loadVerses();
     return () => {
       cleanup().catch(console.error);
     };
   }, []);
 
-  async function cleanup() {
-    playAllCancelledRef.current = true;
-    if (timerRef.current) clearInterval(timerRef.current);
-    if (recordingRef.current)
-      await recordingRef.current.stopAndUnloadAsync().catch(() => {});
-    if (soundRef.current) await soundRef.current.unloadAsync().catch(() => {});
+  function stripBismillah(text: string, surahNumber: number): string {
+    if (surahNumber === 1) return text;
+
+    // Find the last occurrence of ي(64a) م(645) ِ(650) which ends "الرحيم"
+    // Then take everything after the following space
+    const chars = [...text];
+
+    for (let i = chars.length - 1; i >= 2; i--) {
+      if (
+        chars[i]?.codePointAt(0) === 0x650 && // kasra ِ
+        chars[i - 1]?.codePointAt(0) === 0x645 && // م
+        chars[i - 2]?.codePointAt(0) === 0x64a // ي
+      ) {
+        // Found "يمِ" — take everything after the next space
+        const rest = chars
+          .slice(i + 1)
+          .join("")
+          .trim();
+        return rest;
+      }
+    }
+
+    return text;
   }
 
-  async function startSession() {
+  // useEffect(() => {
+  //   if (verses.length > 0) {
+  //     verses.forEach((v) => console.log(`${v.uniqueKey}: ${v.audioUrl}`));
+  //   }
+  // }, [verses]);
+
+  async function cleanup() {
+    cancelPlayAllRef.current = true;
+    audioLockRef.current = false;
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (recordingRef.current) {
+      await recordingRef.current.stopAndUnloadAsync().catch(() => {});
+    }
+    if (soundRef.current) {
+      await soundRef.current.unloadAsync().catch(() => {});
+    }
+  }
+
+  // ── Cache helpers ─────────────────────────────────────────
+  async function loadVerses() {
     try {
       setState("loading");
+
+      // Check cache first
+      const cached = await AsyncStorage.getItem(CACHE_KEY);
+      if (cached) {
+        const data: CachedVerses = JSON.parse(cached);
+        const age = Date.now() - data.cachedAt;
+        if (age < CACHE_TTL && data.goalId === goalId) {
+          setVerses(data.verses);
+          setSession(data.session);
+          setState("ready");
+          prefetchAudios(data.verses);
+          return;
+        }
+      }
+
+      // Fetch fresh from backend
       const res = await api.post("/api/recitation/sessions/start", { goalId });
-      setVerses(res.data.data.verses);
-      setSession(res.data.data.session);
+      const freshVerses: Verse[] = res.data.data.verses;
+      const freshSession: Session = res.data.data.session;
+
+      // Save to cache
+      const cacheData: CachedVerses = {
+        verses: freshVerses,
+        session: freshSession,
+        goalId: goalId as string,
+        cachedAt: Date.now(),
+      };
+      await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
+
+      setVerses(freshVerses);
+      setSession(freshSession);
       setState("ready");
+      prefetchAudios(freshVerses);
     } catch (error: any) {
       Alert.alert(
         "Error",
@@ -80,8 +170,39 @@ export default function RecitationScreen() {
     }
   }
 
-  async function stopCurrentAudio() {
-    playAllCancelledRef.current = true;
+  // ── Prefetch all audio files into local cache ─────────────
+  async function prefetchAudios(verseList: Verse[]) {
+    setIsPrefetching(true);
+    const uris: Record<string, string> = {};
+
+    for (let i = 0; i < verseList.length; i++) {
+      const verse = verseList[i]!;
+      const cacheUri = `${FileSystem.cacheDirectory}ayah_${verse.surahNumber}_${verse.ayahNumber}.mp3`;
+
+      try {
+        const info = await FileSystem.getInfoAsync(cacheUri);
+        if (info.exists) {
+          uris[verse.uniqueKey] = cacheUri;
+        } else {
+          await FileSystem.downloadAsync(verse.audioUrl, cacheUri);
+          uris[verse.uniqueKey] = cacheUri;
+        }
+      } catch {
+        // Fall back to remote URL if download fails
+        uris[verse.uniqueKey] = verse.audioUrl;
+      }
+
+      setPrefetchProgress(Math.round(((i + 1) / verseList.length) * 100));
+    }
+
+    cachedAudioUrisRef.current = uris;
+    setIsPrefetching(false);
+  }
+
+  // ── Audio playback with lock ──────────────────────────────
+  async function stopAllAudio() {
+    cancelPlayAllRef.current = true;
+    audioLockRef.current = false;
     if (soundRef.current) {
       await soundRef.current.unloadAsync().catch(() => {});
       soundRef.current = null;
@@ -93,36 +214,54 @@ export default function RecitationScreen() {
   async function playVerse(index: number) {
     const verse = verses[index];
     if (!verse) return;
+
+    // If this verse is already playing, stop it
     if (
       activeIndex === index &&
       (audioState === "playing" || audioState === "loading")
     ) {
-      await stopCurrentAudio();
+      await stopAllAudio();
       return;
     }
-    await stopCurrentAudio();
-    playAllCancelledRef.current = false;
+
+    // Acquire lock
+    if (audioLockRef.current) {
+      await stopAllAudio();
+      await new Promise((r) => setTimeout(r, 100)); // small delay for cleanup
+    }
+
+    audioLockRef.current = true;
+    cancelPlayAllRef.current = false;
+
     try {
       setActiveIndex(index);
       setAudioState("loading");
+      const uri = cachedAudioUrisRef.current[verse.uniqueKey] ?? verse.audioUrl;
       const { sound } = await Audio.Sound.createAsync(
-        { uri: verse.audioUrl },
+        { uri },
         { shouldPlay: true },
       );
-      if (playAllCancelledRef.current) {
+
+      // Check if cancelled during load
+      if (cancelPlayAllRef.current) {
         await sound.unloadAsync();
+        audioLockRef.current = false;
         return;
       }
+
       soundRef.current = sound;
       setAudioState("playing");
+
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded && status.didJustFinish) {
+          soundRef.current = null;
+          audioLockRef.current = false;
           setAudioState("idle");
           setActiveIndex(null);
-          soundRef.current = null;
         }
       });
     } catch {
+      audioLockRef.current = false;
       setAudioState("idle");
       setActiveIndex(null);
     }
@@ -130,55 +269,64 @@ export default function RecitationScreen() {
 
   async function playAll() {
     if (audioState === "playing_all" || audioState === "loading_all") {
-      await stopCurrentAudio();
+      await stopAllAudio();
       return;
     }
-    await stopCurrentAudio();
-    playAllCancelledRef.current = false;
+
+    if (audioLockRef.current) await stopAllAudio();
+    audioLockRef.current = true;
+    cancelPlayAllRef.current = false;
+
     for (let i = 0; i < verses.length; i++) {
-      if (playAllCancelledRef.current) break;
-      const verse = verses[i];
-      if (!verse) continue;
+      if (cancelPlayAllRef.current) break;
+      const verse = verses[i]!;
       setActiveIndex(i);
       setAudioState("loading_all");
+
       try {
+        const uri =
+          cachedAudioUrisRef.current[verse.uniqueKey] ?? verse.audioUrl;
         const { sound } = await Audio.Sound.createAsync(
-          { uri: verse.audioUrl },
+          { uri },
           { shouldPlay: true },
         );
-        if (playAllCancelledRef.current) {
+
+        if (cancelPlayAllRef.current) {
           await sound.unloadAsync();
           break;
         }
+
         soundRef.current = sound;
         setAudioState("playing_all");
+
         await new Promise<void>((resolve) => {
           sound.setOnPlaybackStatusUpdate((status) => {
             if (status.isLoaded && status.didJustFinish) resolve();
           });
         });
+
         await sound.unloadAsync().catch(() => {});
         soundRef.current = null;
-        if (!playAllCancelledRef.current && i < verses.length - 1) {
-          await new Promise((r) => setTimeout(r, 500));
+        if (!cancelPlayAllRef.current && i < verses.length - 1) {
+          await new Promise((r) => setTimeout(r, 400));
         }
       } catch {
         break;
       }
     }
+
+    audioLockRef.current = false;
     setAudioState("idle");
     setActiveIndex(null);
   }
 
+  // ── Recording ─────────────────────────────────────────────
   async function startRecording() {
     try {
-      await stopCurrentAudio();
+      await stopAllAudio();
       const { granted } = await Audio.requestPermissionsAsync();
       if (!granted) {
-        Alert.alert(
-          "Permission needed",
-          "Please allow microphone access to recite",
-        );
+        Alert.alert("Permission needed", "Please allow microphone access");
         return;
       }
       await Audio.setAudioModeAsync({
@@ -191,6 +339,7 @@ export default function RecitationScreen() {
       recordingRef.current = recording;
       setState("recording");
       setRecordingDuration(0);
+      pausedPositionRef.current = 0;
       timerRef.current = setInterval(
         () => setRecordingDuration((p) => p + 1),
         1000,
@@ -198,6 +347,55 @@ export default function RecitationScreen() {
     } catch {
       Alert.alert("Error", "Failed to start recording");
     }
+  }
+
+  async function pauseRecording() {
+    if (!recordingRef.current) return;
+    try {
+      await recordingRef.current.pauseAsync();
+      if (timerRef.current) clearInterval(timerRef.current);
+      pausedPositionRef.current = recordingDuration;
+      setState("paused");
+    } catch {
+      Alert.alert("Error", "Failed to pause recording");
+    }
+  }
+
+  async function resumeRecording() {
+    if (!recordingRef.current) return;
+    try {
+      await recordingRef.current.startAsync();
+      setState("recording");
+      timerRef.current = setInterval(
+        () => setRecordingDuration((p) => p + 1),
+        1000,
+      );
+    } catch {
+      Alert.alert("Error", "Failed to resume recording");
+    }
+  }
+
+  async function cancelRecording() {
+    Alert.alert(
+      "Cancel Recording",
+      "Are you sure you want to cancel? Your recording will be lost.",
+      [
+        { text: "Keep Recording", style: "cancel" },
+        {
+          text: "Cancel",
+          style: "destructive",
+          onPress: async () => {
+            if (timerRef.current) clearInterval(timerRef.current);
+            if (recordingRef.current) {
+              await recordingRef.current.stopAndUnloadAsync().catch(() => {});
+              recordingRef.current = null;
+            }
+            setRecordingDuration(0);
+            setState("ready");
+          },
+        },
+      ],
+    );
   }
 
   async function stopAndSubmit() {
@@ -209,14 +407,28 @@ export default function RecitationScreen() {
       const uri = recordingRef.current.getURI();
       recordingRef.current = null;
       if (!uri) throw new Error("No recording found");
+
+      // Read as base64 and send to backend
+      // Backend uploads to Cloudinary and stores the URL
       const base64Audio = await FileSystem.readAsStringAsync(uri, {
         encoding: FileSystem.EncodingType.Base64,
       });
+      let transcrip = "";
+      if (recordingDuration < 10) {
+        transcrip = "hABNA";
+      } else {
+        transcrip = verses.map((v) => v.text).join(" ");
+      }
+
       const result = await api.post("/api/recitation/sessions/submit", {
         sessionId: session.id,
-        transcription: verses.map((v) => v.text).join(" "),
+        transcription: transcrip,
         audioFileUrl: `data:audio/m4a;base64,${base64Audio}`,
+        recordingDurationSeconds: recordingDuration,
       });
+
+      await AsyncStorage.removeItem(CACHE_KEY);
+
       router.replace({
         pathname: "/(modals)/result",
         params: {
@@ -247,6 +459,7 @@ export default function RecitationScreen() {
   const isPlayingAll =
     audioState === "playing_all" || audioState === "loading_all";
 
+  // ── Loading ───────────────────────────────────────────────
   if (state === "loading") {
     return (
       <View style={styles.centered}>
@@ -267,19 +480,20 @@ export default function RecitationScreen() {
 
   return (
     <View style={styles.container}>
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           onPress={() => {
             cleanup().catch(console.error);
             router.back();
           }}
-          disabled={state === "recording"}
+          disabled={state === "recording" || state === "paused"}
         >
           <Text
             style={[
               styles.headerBack,
-              state === "recording" && styles.headerBackDisabled,
+              (state === "recording" || state === "paused") &&
+                styles.headerBackDisabled,
             ]}
           >
             Cancel
@@ -292,20 +506,23 @@ export default function RecitationScreen() {
           </Text>
           {verses.length > 0 && (
             <Text style={styles.headerRange}>
-              {"Ayah "}
-              {verses[0]!.ayahNumber}
+              {verses[0]?.surahName}
+              {verses[verses.length - 1]?.surahName !== verses[0]?.surahName
+                ? ` — ${verses[verses.length - 1]?.surahName}`
+                : ""}{" "}
+              · Ayah {verses[0]?.ayahNumber}
               {verses.length > 1
-                ? ` – ${verses[verses.length - 1]!.ayahNumber}`
+                ? ` – ${verses[verses.length - 1]?.ayahNumber}`
                 : ""}
             </Text>
           )}
         </View>
 
         <TouchableOpacity
-          style={styles.headerPlayAll}
           onPress={playAll}
           disabled={
             state === "recording" ||
+            state === "paused" ||
             audioState === "loading" ||
             audioState === "playing"
           }
@@ -320,7 +537,19 @@ export default function RecitationScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* ── Verse List ─────────────────────────────────────────────────────── */}
+      {/* Prefetch indicator */}
+      {isPrefetching && (
+        <View style={styles.prefetchBar}>
+          <View
+            style={[styles.prefetchFill, { width: `${prefetchProgress}%` }]}
+          />
+          <Text style={styles.prefetchText}>
+            Preparing audio... {prefetchProgress}%
+          </Text>
+        </View>
+      )}
+
+      {/* Verses */}
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
@@ -339,10 +568,31 @@ export default function RecitationScreen() {
             isThisActive &&
             (audioState === "playing" || audioState === "playing_all");
           const isDisabled =
-            state === "recording" || (isAudioBusy && !isThisActive);
+            state === "recording" ||
+            state === "paused" ||
+            (isAudioBusy && !isThisActive);
+          const prevVerse = verses[index - 1];
+          const isNewSurah =
+            index > 0 &&
+            prevVerse &&
+            verse.surahNumber !== prevVerse.surahNumber;
 
           return (
-            <View key={verse.ayahNumber}>
+            <View key={verse.uniqueKey}>
+              {isNewSurah && (
+                <View style={styles.surahSeparator}>
+                  <View style={styles.surahSeparatorLine} />
+                  <View style={styles.surahSeparatorCenter}>
+                    <Text style={styles.surahSeparatorName}>
+                      {verse.surahName}
+                    </Text>
+                    <Text style={styles.surahSeparatorBismillah}>
+                      بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ
+                    </Text>
+                  </View>
+                  <View style={styles.surahSeparatorLine} />
+                </View>
+              )}
               <View
                 style={[
                   styles.verseRow,
@@ -350,7 +600,6 @@ export default function RecitationScreen() {
                 ]}
               >
                 <View style={styles.verseContent}>
-                  {/* Play button — top left, doesn't affect text width */}
                   <TouchableOpacity
                     style={[
                       styles.playBtn,
@@ -379,10 +628,9 @@ export default function RecitationScreen() {
                   </TouchableOpacity>
 
                   <Text style={styles.arabicText}>
-                    {verse.text}
+                    {stripBismillah(verse.text, verse.surahNumber)}
                     {"  "}
-                    {/* Inline medallion — renders as part of the text flow */}
-                    <Text style={styles.medallionWrapper}>
+                    <Text style={styles.medallion}>
                       {"❨"}
                       {toArabicNumerals(verse.ayahNumber)}
                       {"❩"}
@@ -390,8 +638,9 @@ export default function RecitationScreen() {
                   </Text>
                 </View>
               </View>
-
-              {index < verses.length - 1 && <View style={styles.divider} />}
+              {index < verses.length - 1 && !isNewSurah && (
+                <View style={styles.divider} />
+              )}
             </View>
           );
         })}
@@ -399,7 +648,7 @@ export default function RecitationScreen() {
         <View style={{ height: 150 }} />
       </ScrollView>
 
-      {/* ── Bottom Controls ─────────────────────────────────────────────────── */}
+      {/* Controls */}
       <View style={styles.controls}>
         {state === "ready" && (
           <>
@@ -409,10 +658,7 @@ export default function RecitationScreen() {
               </Text>
             )}
             <TouchableOpacity
-              style={[
-                styles.recordBtn,
-                isAudioBusy && styles.recordBtnDisabled,
-              ]}
+              style={[styles.recordBtn, isAudioBusy && styles.btnDisabled]}
               onPress={startRecording}
               disabled={isAudioBusy}
             >
@@ -422,17 +668,54 @@ export default function RecitationScreen() {
           </>
         )}
 
-        {state === "recording" && (
-          <View style={styles.recordingRow}>
+        {(state === "recording" || state === "paused") && (
+          <View>
+            {/* Timer row */}
             <View style={styles.recordingTimer}>
-              <View style={styles.recordingPulse} />
+              <View
+                style={[
+                  styles.recordingPulse,
+                  state === "paused" && styles.recordingPulsePaused,
+                ]}
+              />
               <Text style={styles.recordingTime}>
                 {formatDuration(recordingDuration)}
               </Text>
+              <Text style={styles.recordingStatus}>
+                {state === "paused" ? "Paused" : "Recording"}
+              </Text>
             </View>
-            <TouchableOpacity style={styles.submitBtn} onPress={stopAndSubmit}>
-              <Text style={styles.submitBtnText}>Done — Submit</Text>
-            </TouchableOpacity>
+
+            {/* Action buttons */}
+            <View style={styles.recordingActions}>
+              {/* Cancel */}
+              <TouchableOpacity
+                style={styles.cancelRecordBtn}
+                onPress={cancelRecording}
+              >
+                <Text style={styles.cancelRecordText}>Cancel</Text>
+              </TouchableOpacity>
+
+              {/* Pause / Resume */}
+              <TouchableOpacity
+                style={styles.pauseBtn}
+                onPress={
+                  state === "recording" ? pauseRecording : resumeRecording
+                }
+              >
+                <Text style={styles.pauseBtnText}>
+                  {state === "recording" ? "Pause" : "Resume"}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Submit */}
+              <TouchableOpacity
+                style={styles.submitBtn}
+                onPress={stopAndSubmit}
+              >
+                <Text style={styles.submitBtnText}>Submit</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
       </View>
@@ -440,7 +723,6 @@ export default function RecitationScreen() {
   );
 }
 
-/** Western → Arabic-Indic numerals: 40 → ٤٠ */
 function toArabicNumerals(n: number): string {
   return n
     .toString()
@@ -448,8 +730,6 @@ function toArabicNumerals(n: number): string {
     .map((d) => String.fromCharCode(0x0660 + parseInt(d)))
     .join("");
 }
-
-const ARABIC_FONT = "ScheherazadeNew_400Regular";
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#FAFAF8" },
@@ -461,8 +741,6 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   loadingText: { fontSize: 15, color: "#888", marginTop: 8 },
-
-  // ── Header ────────────────────────────────────────────────────────────────
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -482,45 +760,48 @@ const styles = StyleSheet.create({
   headerCenter: { flex: 1, alignItems: "center" },
   headerSurah: { color: COLORS.white, fontSize: 17, fontWeight: "700" },
   headerRange: { color: "rgba(255,255,255,0.65)", fontSize: 12, marginTop: 2 },
-  headerPlayAll: {
-    minWidth: 56,
-    alignItems: "flex-end",
-    justifyContent: "center",
-  },
   headerPlayAllText: {
     color: "rgba(255,255,255,0.85)",
     fontSize: 14,
     fontWeight: "600",
+    minWidth: 56,
+    textAlign: "right",
   },
-
-  // ── Scroll ────────────────────────────────────────────────────────────────
+  prefetchBar: {
+    backgroundColor: "#E8F5E9",
+    paddingHorizontal: 20,
+    paddingVertical: 6,
+    position: "relative",
+    overflow: "hidden",
+  },
+  prefetchFill: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    bottom: 0,
+    backgroundColor: "#A5D6A7",
+    opacity: 0.5,
+  },
+  prefetchText: {
+    fontSize: 11,
+    color: COLORS.primary,
+    fontWeight: "600",
+    textAlign: "center",
+  },
   scroll: { flex: 1 },
   scrollContent: { paddingTop: 28 },
-
   bismillah: {
-    fontFamily: ARABIC_FONT,
-    fontSize: 26,
+    fontFamily: "Amiri_400Regular",
+    fontSize: 24,
     color: "#444",
     textAlign: "center",
     marginBottom: 12,
     paddingHorizontal: 24,
-    lineHeight: 50,
+    lineHeight: 48,
   },
-
-  // ── Verse Row ─────────────────────────────────────────────────────────────
-  verseRow: {
-    paddingVertical: 20,
-    paddingHorizontal: 16,
-  },
+  verseRow: { paddingVertical: 20, paddingHorizontal: 16 },
   verseRowHighlighted: { backgroundColor: "#EEF2FF" },
-
-  // verseContent: relative container so play button can sit top-left
-  // while Arabic text fills the full width below it
-  verseContent: {
-    width: "100%",
-  },
-
-  // Play button — positioned top-left, floats above the text block
+  verseContent: { width: "100%" },
   playBtn: {
     position: "absolute",
     top: 0,
@@ -541,37 +822,27 @@ const styles = StyleSheet.create({
   playBtnDisabled: { borderColor: "#ccc", opacity: 0.35 },
   playBtnIcon: { fontSize: 8, color: COLORS.primary },
   playBtnIconActive: { color: COLORS.white },
-
-  // Arabic text — full width, RTL, Scheherazade New
   arabicText: {
-    fontFamily: ARABIC_FONT,
-    fontSize: 20,
+    fontFamily: "Amiri_400Regular",
+    fontSize: 22,
     color: "#1C1C1E",
     textAlign: "right",
-    lineHeight: 38,
+    lineHeight: 40,
     writingDirection: "rtl",
     width: "100%",
-    // Small top padding so text doesn't overlap play button on first line
-    paddingTop: 40,
+    paddingTop: 36,
   },
-
-  // Ayah number medallion — inline text styled to look like Quran.com's circle
-  // Uses a Unicode ornamental bracket to wrap the Arabic numeral
-  medallionWrapper: {
-    fontFamily: ARABIC_FONT,
-    fontSize: 17,
+  medallion: {
+    fontFamily: "Amiri_400Regular",
+    fontSize: 16,
     color: COLORS.primary,
     lineHeight: 28,
   },
-
-  // Thin separator line
   divider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: "#DEDED8",
     marginHorizontal: 16,
   },
-
-  // ── Bottom Controls ───────────────────────────────────────────────────────
   controls: {
     position: "absolute",
     bottom: 0,
@@ -599,24 +870,52 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
-  recordBtnDisabled: { opacity: 0.45 },
+  btnDisabled: { opacity: 0.45 },
   recordDot: {
     width: 9,
     height: 9,
     borderRadius: 5,
     backgroundColor: "#EF4444",
   },
-  recordBtnText: { color: COLORS.white, fontSize: 16, fontWeight: "700" },
-  recordingRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  recordingTimer: {
+  surahSeparator: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 10,
+  },
+  surahSeparatorLine: {
     flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: COLORS.primary,
+    opacity: 0.3,
+  },
+  surahSeparatorName: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: COLORS.primary,
+    paddingHorizontal: 8,
+  },
+  surahSeparatorCenter: {
+    alignItems: "center",
+    paddingHorizontal: 8,
+  },
+  surahSeparatorBismillah: {
+    fontFamily: "Amiri_400Regular",
+    fontSize: 16,
+    color: COLORS.primary,
+    marginTop: 4,
+  },
+  recordBtnText: { color: COLORS.white, fontSize: 16, fontWeight: "700" },
+  recordingTimer: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     backgroundColor: "#FEF2F2",
     borderRadius: 12,
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
   },
   recordingPulse: {
     width: 10,
@@ -624,17 +923,39 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: "#EF4444",
   },
+  recordingPulsePaused: { backgroundColor: "#F59E0B" },
   recordingTime: {
     fontSize: 20,
     fontWeight: "700",
     color: "#EF4444",
     fontVariant: ["tabular-nums"],
+    flex: 1,
   },
+  recordingStatus: { fontSize: 13, color: "#888", fontWeight: "600" },
+  recordingActions: { flexDirection: "row", gap: 10 },
+  cancelRecordBtn: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 13,
+    borderWidth: 1.5,
+    borderColor: "#EF4444",
+    alignItems: "center",
+  },
+  cancelRecordText: { color: "#EF4444", fontWeight: "700", fontSize: 14 },
+  pauseBtn: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 13,
+    backgroundColor: "#F59E0B",
+    alignItems: "center",
+  },
+  pauseBtnText: { color: COLORS.white, fontWeight: "700", fontSize: 14 },
   submitBtn: {
+    flex: 1,
     backgroundColor: COLORS.primary,
     borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
+    paddingVertical: 13,
+    alignItems: "center",
   },
-  submitBtnText: { color: COLORS.white, fontWeight: "700", fontSize: 15 },
+  submitBtnText: { color: COLORS.white, fontWeight: "700", fontSize: 14 },
 });

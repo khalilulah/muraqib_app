@@ -35,6 +35,7 @@ export default function HomeScreen() {
   const [goal, setGoal] = useState<Goal | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [pendingReviews, setPendingReviews] = useState<any[]>([]);
 
   async function fetchData() {
     try {
@@ -42,6 +43,10 @@ export default function HomeScreen() {
         api.get("/api/recitation/streak"),
         api.get("/api/recitation/goals/active"),
       ]);
+      const reviewsRes = await api.get(
+        "/api/recitation/sessions/pending-reviews",
+      );
+      setPendingReviews(reviewsRes.data.data ?? []);
       setStreak(streakRes.data.data);
       setGoal(goalRes.data.data);
     } catch (error) {
@@ -121,6 +126,31 @@ export default function HomeScreen() {
           <Text style={styles.longestCount}>{streak?.longestStreak ?? 0}d</Text>
         </View>
       </View>
+
+      {pendingReviews.length > 0 && (
+        <View style={styles.reviewCard}>
+          <Text style={styles.reviewTitle}>
+            Partner Review Needed ({pendingReviews.length})
+          </Text>
+          {pendingReviews.map((review: any) => (
+            <TouchableOpacity
+              key={review.id}
+              style={styles.reviewItem}
+              onPress={() =>
+                router.push({
+                  pathname: "/(modals)/review",
+                  params: { sessionId: review.id },
+                })
+              }
+            >
+              <Text style={styles.reviewItemText}>
+                {review.partner_username} submitted a recitation
+              </Text>
+              <Text style={styles.reviewItemArrow}>›</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
 
       {/* Completed today badge */}
       {streak?.completedToday && (
@@ -251,6 +281,31 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 8,
   },
+  reviewCard: {
+    backgroundColor: "#FEF3C7",
+    marginHorizontal: 20,
+    marginTop: 16,
+    borderRadius: 14,
+    padding: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: "#F59E0B",
+  },
+  reviewTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.text,
+    marginBottom: 10,
+  },
+  reviewItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#E5E5E5",
+  },
+  reviewItemText: { fontSize: 13, color: COLORS.text, flex: 1 },
+  reviewItemArrow: { fontSize: 20, color: COLORS.textLight },
   streakLeft: {
     flexDirection: "row",
     alignItems: "center",
