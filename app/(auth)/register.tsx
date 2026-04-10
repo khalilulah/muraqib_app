@@ -50,7 +50,7 @@ export default function RegisterScreen() {
       const loginRes = await api.post("/api/auth/login", { email, password });
       const { user, accessToken, refreshToken } = loginRes.data.data;
       await setAuth(user, accessToken, refreshToken);
-      router.replace("/(tabs)/home");
+      router.replace("/(modals)/goal-setup");
     } catch (error: any) {
       Alert.alert(
         "Registration Failed",

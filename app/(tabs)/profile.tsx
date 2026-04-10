@@ -8,12 +8,15 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from "react-native";
+import * as Linking from "expo-linking";
 import { useEffect, useState } from "react";
 import { router } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import api from "../../src/services/api";
 import { useAuthStore } from "../../src/store/auth.store";
 import { COLORS } from "../../src/constants";
+
+// 🔹 automatically listens for QF redirects
 
 interface Streak {
   currentStreak: number;
@@ -31,6 +34,15 @@ interface HistoryItem {
   goal_type: string;
 }
 
+interface ActivityDay {
+  id: string;
+  date: string;
+  versesRead: number;
+  secondsRead: number;
+  ranges: string[];
+  progress: number;
+}
+
 export default function ProfileScreen() {
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
@@ -39,6 +51,8 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [connectingQF, setConnectingQF] = useState(false);
+  const [activityDays, setActivityDays] = useState<ActivityDay[]>([]);
+  const [qfConnected, setQfConnected] = useState(user?.qfConnected ?? false);
 
   useEffect(() => {
     fetchData();
@@ -47,12 +61,22 @@ export default function ProfileScreen() {
   console.log("gender:", user?.gender, typeof user?.gender);
   async function fetchData() {
     try {
-      const [streakRes, historyRes] = await Promise.all([
+      const requests: Promise<any>[] = [
         api.get("/api/recitation/streak"),
         api.get("/api/recitation/history?limit=5"),
-      ]);
-      setStreak(streakRes.data.data);
-      setHistory(historyRes.data.data);
+      ];
+
+      // Only fetch QF calendar if connected
+      if (user?.qfConnected) {
+        requests.push(api.get("/api/recitation/activity-calendar"));
+      }
+
+      const results = await Promise.all(requests);
+      setStreak(results[0].data.data);
+      setHistory(results[1].data.data);
+      if (user?.qfConnected && results[2]) {
+        setActivityDays(results[2].data.data ?? []);
+      }
     } catch (error) {
       console.error("Profile fetch error:", error);
     } finally {
@@ -60,13 +84,45 @@ export default function ProfileScreen() {
       setRefreshing(false);
     }
   }
+  const isQFConnected = user?.qfConnected === true;
 
   async function connectQF() {
     try {
       setConnectingQF(true);
       const res = await api.get("/api/auth/qf");
       const { url } = res.data.data;
+
+      // Open browser — user connects — browser closes
       await WebBrowser.openBrowserAsync(url);
+
+      // Browser closed — refresh data to get updated qfConnected
+      const [userRes, streakRes, historyRes] = await Promise.all([
+        api.get("/api/users/me"),
+        api.get("/api/recitation/streak"),
+        api.get("/api/recitation/history?limit=5"),
+      ]);
+
+      // Update auth store
+      const updatedUser = userRes.data.data;
+      const currentState = useAuthStore.getState();
+      if (
+        currentState.user &&
+        currentState.accessToken &&
+        currentState.refreshToken
+      ) {
+        await currentState.setAuth(
+          {
+            ...currentState.user,
+            qfConnected: updatedUser.qf_connected,
+          },
+          currentState.accessToken,
+          currentState.refreshToken,
+        );
+      }
+
+      // Update local state
+      setStreak(streakRes.data.data);
+      setHistory(historyRes.data.data);
     } catch (error: any) {
       Alert.alert(
         "Error",
@@ -108,6 +164,39 @@ export default function ProfileScreen() {
     return labels[status] ?? status;
   }
 
+  function generateCalendarDots(activityDays: ActivityDay[]) {
+    const activeDates = new Set(activityDays.map((d) => d.date));
+    const dots = [];
+
+    // Generate last 30 days
+    for (let i = 29; i >= 0; i--) {
+      const date = new Date(Date.now() - i * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .split("T")[0]!;
+      const isActive = activeDates.has(date);
+      const day = new Date(date).getDate();
+
+      dots.push(
+        <View key={date} style={styles.calendarDotWrapper}>
+          <View
+            style={[
+              styles.calendarDot,
+              isActive ? styles.calendarDotActive : styles.calendarDotInactive,
+            ]}
+          />
+          {day === 1 || i === 29 ? (
+            <Text style={styles.calendarDotLabel}>
+              {new Date(date).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+              })}
+            </Text>
+          ) : null}
+        </View>,
+      );
+    }
+    return dots;
+  }
   function formatDate(dateStr: string) {
     return new Date(dateStr).toLocaleDateString("en-US", {
       month: "short",
@@ -172,34 +261,70 @@ export default function ProfileScreen() {
       </View>
 
       {/* QF Connection */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Quran Foundation</Text>
-        {user?.qfConnected ? (
-          <View style={styles.qfConnected}>
-            <View style={styles.qfConnectedDot} />
-            <Text style={styles.qfConnectedText}>Account connected</Text>
-            {streak?.quranFoundation && (
-              <Text style={styles.qfStreakText}>
-                {streak.quranFoundation.days} day streak on QF
+      {isQFConnected ? (
+        <View style={styles.qfConnected}>
+          <View style={styles.qfConnectedDot} />
+          <Text style={styles.qfConnectedText}>Quran Foundation connected</Text>
+          {streak?.quranFoundation && (
+            <Text style={styles.qfStreakText}>
+              {streak.quranFoundation.days} day streak on Quran.com
+            </Text>
+          )}
+        </View>
+      ) : (
+        <TouchableOpacity
+          style={styles.qfButton}
+          onPress={connectQF}
+          disabled={connectingQF}
+        >
+          {connectingQF ? (
+            <ActivityIndicator size="small" color={COLORS.white} />
+          ) : (
+            <Text style={styles.qfButtonText}>
+              Connect Quran Foundation Account
+            </Text>
+          )}
+        </TouchableOpacity>
+      )}
+
+      {/* QF Activity Calendar */}
+      {qfConnected && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Quran Foundation Activity</Text>
+          <View style={styles.calendarCard}>
+            {activityDays.length === 0 ? (
+              <Text style={styles.calendarEmpty}>
+                Complete a recitation to see your activity here
               </Text>
+            ) : (
+              <>
+                <View style={styles.calendarGrid}>
+                  {generateCalendarDots(activityDays)}
+                </View>
+                <Text style={styles.calendarLegend}>
+                  Last 30 days · {activityDays.length} days active
+                </Text>
+                {/* Show last activity details */}
+                {activityDays.length > 0 && (
+                  <View style={styles.lastActivity}>
+                    <Text style={styles.lastActivityLabel}>
+                      Last recitation
+                    </Text>
+                    <Text style={styles.lastActivityDate}>
+                      {formatDate(activityDays[activityDays.length - 1]!.date)}
+                    </Text>
+                    <Text style={styles.lastActivityDetail}>
+                      {activityDays[activityDays.length - 1]!.ranges?.join(
+                        ", ",
+                      )}
+                    </Text>
+                  </View>
+                )}
+              </>
             )}
           </View>
-        ) : (
-          <TouchableOpacity
-            style={styles.qfButton}
-            onPress={connectQF}
-            disabled={connectingQF}
-          >
-            {connectingQF ? (
-              <ActivityIndicator size="small" color={COLORS.white} />
-            ) : (
-              <Text style={styles.qfButtonText}>
-                Connect Quran Foundation Account
-              </Text>
-            )}
-          </TouchableOpacity>
-        )}
-      </View>
+        </View>
+      )}
 
       {/* Recent History */}
       <View style={styles.section}>
@@ -314,6 +439,73 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 8,
+  },
+  calendarCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 14,
+    padding: 16,
+    elevation: 2,
+  },
+  calendarGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 4,
+    marginBottom: 10,
+  },
+  calendarDotWrapper: {
+    alignItems: "center",
+  },
+  calendarDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  calendarDotActive: {
+    backgroundColor: COLORS.primary,
+  },
+  calendarDotInactive: {
+    backgroundColor: "#E5E5E5",
+  },
+  calendarDotLabel: {
+    fontSize: 7,
+    color: COLORS.textLight,
+    marginTop: 2,
+  },
+  calendarLegend: {
+    fontSize: 11,
+    color: COLORS.textLight,
+    textAlign: "center",
+    marginBottom: 12,
+  },
+  lastActivity: {
+    backgroundColor: COLORS.background,
+    borderRadius: 10,
+    padding: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.primary,
+  },
+  lastActivityLabel: {
+    fontSize: 10,
+    color: COLORS.textLight,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    marginBottom: 2,
+  },
+  lastActivityDate: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.text,
+    marginBottom: 2,
+  },
+  lastActivityDetail: {
+    fontSize: 12,
+    color: COLORS.textLight,
+  },
+  calendarEmpty: {
+    fontSize: 13,
+    color: COLORS.textLight,
+    textAlign: "center",
+    padding: 8,
   },
   statCard: { flex: 1, alignItems: "center" },
   statNumber: { fontSize: 24, fontWeight: "800", color: COLORS.text },

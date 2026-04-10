@@ -39,16 +39,14 @@ export default function HomeScreen() {
 
   async function fetchData() {
     try {
-      const [streakRes, goalRes] = await Promise.all([
+      const [streakRes, goalRes, reviewsRes] = await Promise.all([
         api.get("/api/recitation/streak"),
         api.get("/api/recitation/goals/active"),
+        api.get("/api/recitation/sessions/pending-reviews"),
       ]);
-      const reviewsRes = await api.get(
-        "/api/recitation/sessions/pending-reviews",
-      );
-      setPendingReviews(reviewsRes.data.data ?? []);
       setStreak(streakRes.data.data);
       setGoal(goalRes.data.data);
+      setPendingReviews(reviewsRes.data.data ?? []);
     } catch (error) {
       console.error("Home fetch error:", error);
     } finally {
@@ -105,28 +103,106 @@ export default function HomeScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.greeting}>{getGreeting()},</Text>
-          <Text style={styles.username}>{user?.username} 👋</Text>
+          <Text style={styles.username}>{user?.username}</Text>
         </View>
         <Text style={styles.headerArabic}>بِسْمِ ٱللَّهِ</Text>
       </View>
 
-      {/* Streak Card */}
-      <View style={styles.streakCard}>
-        <View style={styles.streakLeft}>
-          <Text style={styles.streakFire}>🔥</Text>
-          <View>
-            <Text style={styles.streakCount}>
-              {streak?.currentStreak ?? 0} days
-            </Text>
-            <Text style={styles.streakLabel}>Current Streak</Text>
+      {/* Side-by-side Streak Cards */}
+      <View style={styles.streakSection}>
+        {/* Muraqib Streak */}
+        <View style={styles.streakCard}>
+          <View style={styles.streakCardHeader}>
+            <Text style={styles.streakCardTitle}>Muraqib</Text>
+            {streak?.completedToday && (
+              <View style={styles.todayBadge}>
+                <Text style={styles.todayBadgeText}>Done</Text>
+              </View>
+            )}
+          </View>
+          <View style={styles.streakNumbers}>
+            <View style={styles.streakMain}>
+              <Text style={styles.streakFire}>🔥</Text>
+              <Text style={styles.streakCount}>
+                {streak?.currentStreak ?? 0}
+              </Text>
+              <Text style={styles.streakUnit}>days</Text>
+            </View>
+            <View style={styles.streakDivider} />
+            <View style={styles.streakBest}>
+              <Text style={styles.streakBestLabel}>Best</Text>
+              <Text style={styles.streakBestCount}>
+                {streak?.longestStreak ?? 0}d
+              </Text>
+            </View>
           </View>
         </View>
-        <View style={styles.streakRight}>
-          <Text style={styles.longestLabel}>Best</Text>
-          <Text style={styles.longestCount}>{streak?.longestStreak ?? 0}d</Text>
+
+        {/* QF Streak */}
+        {/* QF Streak */}
+        <View
+          style={[
+            styles.streakCard,
+            styles.qfStreakCard,
+            !user?.qfConnected && styles.qfStreakCardDisconnected,
+          ]}
+        >
+          <View style={styles.streakCardHeader}>
+            <Text style={styles.streakCardTitle}>Quran.com</Text>
+            <View
+              style={[
+                styles.syncBadge,
+                user?.qfConnected
+                  ? styles.syncBadgeActive
+                  : styles.syncBadgeInactive,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.syncBadgeText,
+                  user?.qfConnected
+                    ? styles.syncBadgeTextActive
+                    : styles.syncBadgeTextInactive,
+                ]}
+              >
+                {user?.qfConnected ? "Synced" : "Not linked"}
+              </Text>
+            </View>
+          </View>
+
+          {user?.qfConnected ? (
+            <View style={styles.streakNumbers}>
+              <View style={styles.streakMain}>
+                <Text style={styles.streakFire}>📖</Text>
+                <Text style={styles.streakCount}>
+                  {streak?.quranFoundation?.days ?? "—"}
+                </Text>
+                <Text style={styles.streakUnit}>days</Text>
+              </View>
+              <View style={styles.streakDivider} />
+              <View style={styles.streakBest}>
+                <Text style={styles.streakBestLabel}>Status</Text>
+                <Text
+                  style={[styles.streakBestCount, styles.streakBestCountSmall]}
+                >
+                  {streak?.quranFoundation?.status === "ACTIVE"
+                    ? "Active"
+                    : "Syncing"}
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={styles.connectQFBtn}
+              onPress={() => router.push("/(tabs)/profile")}
+            >
+              <Text style={styles.connectQFBtnText}>Connect Account</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
+      {/* Partner Review Needed */}
       {pendingReviews.length > 0 && (
         <View style={styles.reviewCard}>
           <Text style={styles.reviewTitle}>
@@ -152,25 +228,6 @@ export default function HomeScreen() {
         </View>
       )}
 
-      {/* Completed today badge */}
-      {streak?.completedToday && (
-        <View style={styles.completedBadge}>
-          <Text style={styles.completedText}>
-            ✅ You completed today's recitation!
-          </Text>
-        </View>
-      )}
-
-      {/* QF Streak */}
-      {streak?.quranFoundation && (
-        <View style={styles.qfCard}>
-          <Text style={styles.qfTitle}>🕌 Quran Foundation Streak</Text>
-          <Text style={styles.qfDays}>
-            {streak.quranFoundation.days} days — {streak.quranFoundation.status}
-          </Text>
-        </View>
-      )}
-
       {/* Today's Goal */}
       <Text style={styles.sectionTitle}>Today's Goal</Text>
       {goal ? (
@@ -179,14 +236,13 @@ export default function HomeScreen() {
             <Text style={styles.goalType}>
               {getGoalTypeLabel(goal.goal_type)}
             </Text>
-            <Text style={styles.goalTime}>⏰ {goal.scheduled_time}</Text>
+            <Text style={styles.goalTime}>{goal.scheduled_time}</Text>
           </View>
           <Text style={styles.goalDetail}>
             {goal.daily_ayah_count} ayahs · Surah {goal.current_surah}, Ayah{" "}
             {goal.current_ayah}
           </Text>
 
-          {/* Recite Button */}
           <TouchableOpacity
             style={[
               styles.reciteButton,
@@ -202,15 +258,13 @@ export default function HomeScreen() {
           >
             <Text style={styles.reciteButtonText}>
               {streak?.completedToday
-                ? "✅ Done for Today"
-                : "🎙️ Start Recitation"}
+                ? "Completed for Today"
+                : "Start Recitation"}
             </Text>
           </TouchableOpacity>
         </View>
       ) : (
-        // No goal set yet
         <View style={styles.noGoalCard}>
-          <Text style={styles.noGoalEmoji}>📖</Text>
           <Text style={styles.noGoalTitle}>No goal set yet</Text>
           <Text style={styles.noGoalSub}>
             Set your monthly recitation goal to get started
@@ -224,7 +278,7 @@ export default function HomeScreen() {
         </View>
       )}
 
-      <View style={{ height: 30 }} />
+      <View style={{ height: 40 }} />
     </ScrollView>
   );
 }
@@ -240,6 +294,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: COLORS.background,
   },
+
+  // Header
   header: {
     backgroundColor: COLORS.primary,
     paddingTop: 60,
@@ -266,21 +322,139 @@ const styles = StyleSheet.create({
     color: COLORS.secondary,
     fontFamily: "Amiri_400Regular",
   },
-  streakCard: {
-    backgroundColor: COLORS.white,
+
+  // Streak Section
+  streakSection: {
+    flexDirection: "row",
     marginHorizontal: 20,
     marginTop: 20,
+    gap: 12,
+  },
+  streakCard: {
+    flex: 1,
+    backgroundColor: COLORS.white,
     borderRadius: 16,
-    padding: 20,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    padding: 14,
     elevation: 3,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 8,
   },
+  qfStreakCard: {
+    borderWidth: 1.5,
+    borderColor: COLORS.secondary,
+  },
+  qfStreakCardDisconnected: {
+    borderColor: "#E5E5E5",
+  },
+  streakCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  streakCardTitle: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: COLORS.textLight,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  todayBadge: {
+    backgroundColor: "#D1FAE5",
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  todayBadgeText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: COLORS.success,
+  },
+  syncBadge: {
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  syncBadgeActive: {
+    backgroundColor: "#FEF3C7",
+  },
+  syncBadgeInactive: {
+    backgroundColor: "#F3F4F6",
+  },
+  syncBadgeText: {
+    fontSize: 9,
+    fontWeight: "700",
+  },
+  syncBadgeTextActive: {
+    color: "#D97706",
+  },
+  syncBadgeTextInactive: {
+    color: COLORS.textLight,
+  },
+  streakNumbers: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  streakMain: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 3,
+  },
+  streakFire: {
+    fontSize: 18,
+  },
+  streakCount: {
+    fontSize: 26,
+    fontWeight: "800",
+    color: COLORS.text,
+  },
+  streakUnit: {
+    fontSize: 11,
+    color: COLORS.textLight,
+    fontWeight: "600",
+  },
+  streakDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: "#E5E5E5",
+    marginHorizontal: 8,
+  },
+  streakBest: {
+    alignItems: "center",
+  },
+  streakBestLabel: {
+    fontSize: 10,
+    color: COLORS.textLight,
+    fontWeight: "600",
+    marginBottom: 2,
+  },
+  streakBestCount: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: COLORS.primary,
+  },
+  streakBestCountSmall: {
+    fontSize: 11,
+  },
+  connectQFBtn: {
+    backgroundColor: COLORS.background,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: COLORS.secondary,
+    marginTop: 2,
+  },
+  connectQFBtnText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: COLORS.primary,
+  },
+
+  // Review Card
   reviewCard: {
     backgroundColor: "#FEF3C7",
     marginHorizontal: 20,
@@ -306,72 +480,8 @@ const styles = StyleSheet.create({
   },
   reviewItemText: { fontSize: 13, color: COLORS.text, flex: 1 },
   reviewItemArrow: { fontSize: 20, color: COLORS.textLight },
-  streakLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  streakFire: {
-    fontSize: 36,
-  },
-  streakCount: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: COLORS.text,
-  },
-  streakLabel: {
-    fontSize: 12,
-    color: COLORS.textLight,
-    marginTop: 2,
-  },
-  streakRight: {
-    alignItems: "center",
-    backgroundColor: COLORS.background,
-    borderRadius: 12,
-    padding: 12,
-  },
-  longestLabel: {
-    fontSize: 11,
-    color: COLORS.textLight,
-    fontWeight: "600",
-  },
-  longestCount: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: COLORS.primary,
-  },
-  completedBadge: {
-    backgroundColor: "#D1FAE5",
-    marginHorizontal: 20,
-    marginTop: 12,
-    borderRadius: 12,
-    padding: 12,
-    alignItems: "center",
-  },
-  completedText: {
-    color: COLORS.success,
-    fontWeight: "600",
-    fontSize: 14,
-  },
-  qfCard: {
-    backgroundColor: "#FFF8E7",
-    marginHorizontal: 20,
-    marginTop: 12,
-    borderRadius: 12,
-    padding: 14,
-    borderLeftWidth: 4,
-    borderLeftColor: COLORS.secondary,
-  },
-  qfTitle: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: COLORS.text,
-    marginBottom: 4,
-  },
-  qfDays: {
-    fontSize: 13,
-    color: COLORS.textLight,
-  },
+
+  // Goal Card
   sectionTitle: {
     fontSize: 18,
     fontWeight: "700",
@@ -426,6 +536,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
   },
+
+  // No Goal Card
   noGoalCard: {
     backgroundColor: COLORS.white,
     marginHorizontal: 20,
@@ -433,10 +545,6 @@ const styles = StyleSheet.create({
     padding: 28,
     alignItems: "center",
     elevation: 2,
-  },
-  noGoalEmoji: {
-    fontSize: 44,
-    marginBottom: 12,
   },
   noGoalTitle: {
     fontSize: 17,

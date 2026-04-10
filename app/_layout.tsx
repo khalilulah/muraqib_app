@@ -14,6 +14,7 @@ import { ScheherazadeNew_400Regular } from "@expo-google-fonts/scheherazade-new"
 
 import * as SplashScreen from "expo-splash-screen";
 import { registerForPushNotifications } from "../src/utils/notifications";
+import { ActivityIndicator, View } from "react-native";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -24,7 +25,7 @@ export default function RootLayout() {
 
   const hasNavigated = useRef<boolean>(false);
 
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     Amiri_400Regular,
     Amiri_700Bold,
     ScheherazadeNew_400Regular,
@@ -71,6 +72,12 @@ export default function RootLayout() {
     }
   }, [fontsLoaded]);
 
+  useEffect(() => {
+    if (fontsLoaded || fontError) {
+      SplashScreen.hideAsync();
+    }
+  }, [fontsLoaded, fontError]);
+
   // CENTRALIZED navigation handler
   function handleNavigation(response: any) {
     // Prevent duplicate navigation
@@ -98,7 +105,20 @@ export default function RootLayout() {
     }
   }
 
-  if (!fontsLoaded) return null;
+  if (!fontsLoaded && !fontError) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          backgroundColor: "#F9F5F0",
+        }}
+      >
+        <ActivityIndicator size="large" color="#1B4332" />
+      </View>
+    );
+  }
 
   return (
     <>
