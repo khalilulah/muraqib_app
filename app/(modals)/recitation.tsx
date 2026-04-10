@@ -486,10 +486,25 @@ export default function RecitationScreen() {
         },
       });
     } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error.response?.data?.message ?? "Submission failed",
-      );
+      const isNetworkError =
+        error.message === "Network Error" ||
+        error.code === "ECONNABORTED" ||
+        !error.response;
+
+      if (isNetworkError) {
+        Alert.alert(
+          "Connection Error",
+          "Could not reach the server. Please check your internet connection and try again.",
+          [{ text: "Try Again", onPress: () => setState("ready") }],
+        );
+      } else {
+        Alert.alert(
+          "Submission Failed",
+          error.response?.data?.message ??
+            "Something went wrong. Please try again.",
+          [{ text: "OK", onPress: () => setState("ready") }],
+        );
+      }
       setState("ready");
     }
   }

@@ -6,6 +6,8 @@ declare module "whisper.rn" {
         language?: string;
         maxLen?: number;
         tokenTimestamps?: boolean;
+        translate: boolean; // don't translate to English
+        noTimestamps: boolean;
       },
     ): {
       promise: Promise<{ result: string }>;

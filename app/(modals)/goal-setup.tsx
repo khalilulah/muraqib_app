@@ -12,6 +12,7 @@ import { useState } from "react";
 import { router } from "expo-router";
 import api from "../../src/services/api";
 import { COLORS } from "../../src/constants";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 type GoalType = "ayah_count" | "juz" | "quran" | "random" | "fixed";
 
@@ -88,6 +89,8 @@ export default function GoalSetupScreen() {
       }
 
       await api.post("/api/recitation/goals", body);
+      // After successful goal creation, before navigating home:
+      await AsyncStorage.removeItem("cached_daily_verses");
       Alert.alert("Done", "Your goal has been set!", [
         { text: "OK", onPress: () => router.back() },
       ]);

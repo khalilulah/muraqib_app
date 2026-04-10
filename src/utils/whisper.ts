@@ -4,8 +4,8 @@ import * as FileSystem from "expo-file-system/legacy";
 let whisperContext: WhisperContext | null = null;
 
 const MODEL_URL =
-  "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin";
-const MODEL_PATH = `${FileSystem.documentDirectory}ggml-tiny.bin`;
+  "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin";
+const MODEL_PATH = `${FileSystem.documentDirectory}ggml-base.bin`;
 
 export async function initializeWhisper(
   onProgress?: (progress: number) => void,
@@ -42,8 +42,10 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
 
   const { promise } = whisperContext.transcribe(audioUri, {
     language: "ar", // Arabic
-    maxLen: 1,
+    maxLen: 0,
     tokenTimestamps: false,
+    translate: false, // don't translate to English
+    noTimestamps: true,
   });
 
   const result = await promise;
