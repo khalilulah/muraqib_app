@@ -14,6 +14,11 @@ import * as FileSystem from "expo-file-system/legacy";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import api from "../../src/services/api";
 import { COLORS } from "../../src/constants";
+import {
+  initializeWhisper,
+  transcribeAudio,
+  isWhisperReady,
+} from "../../src/utils/whisper";
 
 interface Verse {
   uniqueKey: string; // 👈 add this
@@ -64,6 +69,9 @@ export default function RecitationScreen() {
   const [prefetchProgress, setPrefetchProgress] = useState(0); // 0-100
   const [isPrefetching, setIsPrefetching] = useState(false);
   const cachedAudioUrisRef = useRef<Record<string, string>>({});
+  const [whisperReady, setWhisperReady] = useState(false);
+  const [modelDownloading, setModelDownloading] = useState(false);
+  const [modelProgress, setModelProgress] = useState(0);
 
   // Single audio lock — prevents multiple sounds playing simultaneously
   const audioLockRef = useRef(false);
@@ -79,6 +87,32 @@ export default function RecitationScreen() {
       cleanup().catch(console.error);
     };
   }, []);
+
+  useEffect(() => {
+    loadVerses();
+    initWhisperModel();
+    return () => {
+      cleanup().catch(console.error);
+    };
+  }, []);
+
+  async function initWhisperModel() {
+    if (isWhisperReady()) {
+      setWhisperReady(true);
+      return;
+    }
+    try {
+      setModelDownloading(true);
+      await initializeWhisper((progress) => {
+        setModelProgress(progress);
+      });
+      setWhisperReady(true);
+    } catch (error) {
+      console.error("Whisper init failed:", error);
+    } finally {
+      setModelDownloading(false);
+    }
+  }
 
   function stripBismillah(text: string, surahNumber: number): string {
     if (surahNumber === 1) return text;
@@ -413,16 +447,29 @@ export default function RecitationScreen() {
       const base64Audio = await FileSystem.readAsStringAsync(uri, {
         encoding: FileSystem.EncodingType.Base64,
       });
-      let transcrip = "";
-      if (recordingDuration < 10) {
-        transcrip = "hABNA";
+      let transcription = "";
+      if (whisperReady) {
+        try {
+          transcription = await transcribeAudio(uri);
+          console.log("Whisper transcription:", transcription);
+        } catch (error) {
+          console.error("Transcription failed:", error);
+          // Fallback — if transcription fails, send empty string
+          transcription = "";
+        }
       } else {
-        transcrip = verses.map((v) => v.text).join(" ");
+        // Whisper not ready — notify user
+        Alert.alert(
+          "Model not ready",
+          "The transcription model is still loading. Please wait a moment and try again.",
+        );
+        setState("ready");
+        return;
       }
 
       const result = await api.post("/api/recitation/sessions/submit", {
         sessionId: session.id,
-        transcription: transcrip,
+        transcription,
         audioFileUrl: `data:audio/m4a;base64,${base64Audio}`,
         recordingDurationSeconds: recordingDuration,
       });
@@ -548,7 +595,14 @@ export default function RecitationScreen() {
           </Text>
         </View>
       )}
-
+      {modelDownloading && (
+        <View style={styles.whisperBar}>
+          <View style={[styles.whisperFill, { width: `${modelProgress}%` }]} />
+          <Text style={styles.whisperText}>
+            Preparing transcription model... {modelProgress}%
+          </Text>
+        </View>
+      )}
       {/* Verses */}
       <ScrollView
         style={styles.scroll}
@@ -783,6 +837,27 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   prefetchText: {
+    fontSize: 11,
+    color: COLORS.primary,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  whisperBar: {
+    backgroundColor: "#E8F5E9",
+    paddingHorizontal: 20,
+    paddingVertical: 6,
+    position: "relative",
+    overflow: "hidden",
+  },
+  whisperFill: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    bottom: 0,
+    backgroundColor: "#A5D6A7",
+    opacity: 0.5,
+  },
+  whisperText: {
     fontSize: 11,
     color: COLORS.primary,
     fontWeight: "600",

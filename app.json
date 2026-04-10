@@ -43,6 +43,12 @@
           "icon": "./assets/icon.png",
           "color": "#1B4332"
         }
+      ],
+      [
+        "whisper.rn",
+        {
+          "coreMLModels": []
+        }
       ]
     ],
     "extra": {
