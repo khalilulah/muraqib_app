@@ -367,9 +367,28 @@ export default function RecitationScreen() {
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
       });
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY,
-      );
+      const { recording } = await Audio.Recording.createAsync({
+        android: {
+          extension: ".wav",
+          outputFormat: Audio.AndroidOutputFormat.DEFAULT,
+          audioEncoder: Audio.AndroidAudioEncoder.DEFAULT,
+          sampleRate: 16000, // whisper expects 16kHz
+          numberOfChannels: 1,
+          bitRate: 256000,
+        },
+        ios: {
+          extension: ".wav",
+          outputFormat: Audio.IOSOutputFormat.LINEARPCM,
+          audioQuality: Audio.IOSAudioQuality.HIGH,
+          sampleRate: 16000,
+          numberOfChannels: 1,
+          bitRate: 256000,
+          linearPCMBitDepth: 16,
+          linearPCMIsBigEndian: false,
+          linearPCMIsFloat: false,
+        },
+        web: {},
+      });
       recordingRef.current = recording;
       setState("recording");
       setRecordingDuration(0);
@@ -470,7 +489,7 @@ export default function RecitationScreen() {
       const result = await api.post("/api/recitation/sessions/submit", {
         sessionId: session.id,
         transcription,
-        audioFileUrl: `data:audio/m4a;base64,${base64Audio}`,
+        audioFileUrl: `data:audio/wav;base64,${base64Audio}`,
         recordingDurationSeconds: recordingDuration,
       });
 
