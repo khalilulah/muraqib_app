@@ -1,4 +1,4 @@
-export const API_URL = "https://muraqib-server.onrender.com";
+export const API_URL = "https://muraqib-server.vercel.app";
 
 export const COLORS = {
   primary: "#1B4332", // deep green

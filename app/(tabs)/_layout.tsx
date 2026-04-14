@@ -1,6 +1,9 @@
 import { Tabs } from "expo-router";
 import { COLORS } from "../../src/constants";
 import { Text } from "react-native";
+import { useAuthStore } from "../../src/store/auth.store";
+import api from "../../src/services/api";
+import { useEffect, useState } from "react";
 
 function TabIcon({ emoji, focused }: { emoji: string; focused: boolean }) {
   return (
@@ -11,6 +14,39 @@ function TabIcon({ emoji, focused }: { emoji: string; focused: boolean }) {
 }
 
 export default function TabsLayout() {
+  const [shouldLock, setShouldLock] = useState(false);
+
+  // Check every minute
+  useEffect(() => {
+    checkLock();
+    const interval = setInterval(checkLock, 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  async function checkLock() {
+    try {
+      const [goalRes, streakRes] = await Promise.all([
+        api.get("/api/recitation/goals/active"),
+        api.get("/api/recitation/streak"),
+      ]);
+      const goal = goalRes.data.data;
+      const streak = streakRes.data.data;
+
+      if (!goal || streak?.completedToday) {
+        setShouldLock(false);
+        return;
+      }
+
+      const scheduledTime = goal.scheduled_time;
+      const [hours, minutes] = scheduledTime.split(":").map(Number);
+      const scheduled = new Date();
+      scheduled.setHours(hours!, minutes!, 0, 0);
+      const diffMins = (Date.now() - scheduled.getTime()) / 60000;
+      setShouldLock(diffMins >= -30 && diffMins <= 120);
+    } catch {
+      setShouldLock(false);
+    }
+  }
   return (
     <Tabs
       screenOptions={{
@@ -31,6 +67,13 @@ export default function TabsLayout() {
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: "600",
+        },
+      }}
+      screenListeners={{
+        tabPress: (e) => {
+          if (shouldLock) {
+            e.preventDefault(); // Block tab switching during recitation time
+          }
         },
       }}
     >

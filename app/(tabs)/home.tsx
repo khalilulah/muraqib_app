@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Alert,
 } from "react-native";
 import { useEffect, useState } from "react";
 import { router } from "expo-router";
@@ -55,8 +56,29 @@ export default function HomeScreen() {
     }
   }
 
+  function isRecitationTime(scheduledTime: string | undefined): boolean {
+    if (!scheduledTime) return false;
+    console.log("Checking recitation time:", scheduledTime);
+    const now = new Date();
+    const [hours, minutes] = scheduledTime.split(":").map(Number);
+
+    const scheduled = new Date();
+    scheduled.setHours(hours!, minutes!, 0, 0);
+
+    // Show lock screen within 30 minutes BEFORE and 2 hours AFTER scheduled time
+    const diffMs = now.getTime() - scheduled.getTime();
+    const diffMins = diffMs / (1000 * 60);
+    console.log("Diff minutes:", diffMins);
+    return diffMins >= -30 && diffMins <= 120;
+  }
+
   useEffect(() => {
     fetchData();
+    const interval = setInterval(() => {
+      fetchData();
+    }, 60 * 1000);
+
+    return () => clearInterval(interval);
   }, []);
 
   function getGreeting() {
@@ -86,200 +108,252 @@ export default function HomeScreen() {
   }
 
   return (
-    <ScrollView
-      style={styles.container}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={() => {
-            setRefreshing(true);
-            fetchData();
-          }}
-        />
-      }
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>{getGreeting()},</Text>
-          <Text style={styles.username}>{user?.username}</Text>
-        </View>
-        <Text style={styles.headerArabic}>بِسْمِ ٱللَّهِ</Text>
-      </View>
-
-      {/* Side-by-side Streak Cards */}
-      <View style={styles.streakSection}>
-        {/* Muraqib Streak */}
-        <View style={styles.streakCard}>
-          <View style={styles.streakCardHeader}>
-            <Text style={styles.streakCardTitle}>Muraqib</Text>
-            {streak?.completedToday && (
-              <View style={styles.todayBadge}>
-                <Text style={styles.todayBadgeText}>Done</Text>
-              </View>
-            )}
+    <View style={{ flex: 1 }}>
+      <ScrollView
+        style={styles.container}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              fetchData();
+            }}
+          />
+        }
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.greeting}>{getGreeting()},</Text>
+            <Text style={styles.username}>{user?.username}</Text>
           </View>
-          <View style={styles.streakNumbers}>
-            <View style={styles.streakMain}>
-              <Text style={styles.streakFire}>🔥</Text>
-              <Text style={styles.streakCount}>
-                {streak?.currentStreak ?? 0}
-              </Text>
-              <Text style={styles.streakUnit}>days</Text>
-            </View>
-            <View style={styles.streakDivider} />
-            <View style={styles.streakBest}>
-              <Text style={styles.streakBestLabel}>Best</Text>
-              <Text style={styles.streakBestCount}>
-                {streak?.longestStreak ?? 0}d
-              </Text>
-            </View>
-          </View>
+          <Text style={styles.headerArabic}>بِسْمِ ٱللَّهِ</Text>
         </View>
 
-        {/* QF Streak */}
-        {/* QF Streak */}
-        <View
-          style={[
-            styles.streakCard,
-            styles.qfStreakCard,
-            !user?.qfConnected && styles.qfStreakCardDisconnected,
-          ]}
-        >
-          <View style={styles.streakCardHeader}>
-            <Text style={styles.streakCardTitle}>Quran.com</Text>
-            <View
-              style={[
-                styles.syncBadge,
-                user?.qfConnected
-                  ? styles.syncBadgeActive
-                  : styles.syncBadgeInactive,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.syncBadgeText,
-                  user?.qfConnected
-                    ? styles.syncBadgeTextActive
-                    : styles.syncBadgeTextInactive,
-                ]}
-              >
-                {user?.qfConnected ? "Synced" : "Not linked"}
-              </Text>
+        {/* Side-by-side Streak Cards */}
+        <View style={styles.streakSection}>
+          <View style={styles.streakCard}>
+            <View style={styles.streakCardHeader}>
+              <Text style={styles.streakCardTitle}>Muraqib</Text>
+              {streak?.completedToday && (
+                <View style={styles.todayBadge}>
+                  <Text style={styles.todayBadgeText}>Done</Text>
+                </View>
+              )}
             </View>
-          </View>
-
-          {user?.qfConnected ? (
             <View style={styles.streakNumbers}>
               <View style={styles.streakMain}>
-                <Text style={styles.streakFire}>📖</Text>
+                <Text style={styles.streakFire}>🔥</Text>
                 <Text style={styles.streakCount}>
-                  {streak?.quranFoundation?.days ?? "—"}
+                  {streak?.currentStreak ?? 0}
                 </Text>
                 <Text style={styles.streakUnit}>days</Text>
               </View>
               <View style={styles.streakDivider} />
               <View style={styles.streakBest}>
-                <Text style={styles.streakBestLabel}>Status</Text>
-                <Text
-                  style={[styles.streakBestCount, styles.streakBestCountSmall]}
-                >
-                  {streak?.quranFoundation?.status === "ACTIVE"
-                    ? "Active"
-                    : "Syncing"}
+                <Text style={styles.streakBestLabel}>Best</Text>
+                <Text style={styles.streakBestCount}>
+                  {streak?.longestStreak ?? 0}d
                 </Text>
               </View>
             </View>
-          ) : (
-            <TouchableOpacity
-              style={styles.connectQFBtn}
-              onPress={() => router.push("/(tabs)/profile")}
-            >
-              <Text style={styles.connectQFBtnText}>Connect Account</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
+          </View>
 
-      {/* Partner Review Needed */}
-      {pendingReviews.length > 0 && (
-        <View style={styles.reviewCard}>
-          <Text style={styles.reviewTitle}>
-            Partner Review Needed ({pendingReviews.length})
-          </Text>
-          {pendingReviews.map((review: any) => (
+          <View
+            style={[
+              styles.streakCard,
+              styles.qfStreakCard,
+              !user?.qfConnected && styles.qfStreakCardDisconnected,
+            ]}
+          >
+            <View style={styles.streakCardHeader}>
+              <Text style={styles.streakCardTitle}>Quran.com</Text>
+              <View
+                style={[
+                  styles.syncBadge,
+                  user?.qfConnected
+                    ? styles.syncBadgeActive
+                    : styles.syncBadgeInactive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.syncBadgeText,
+                    user?.qfConnected
+                      ? styles.syncBadgeTextActive
+                      : styles.syncBadgeTextInactive,
+                  ]}
+                >
+                  {user?.qfConnected ? "Synced" : "Not linked"}
+                </Text>
+              </View>
+            </View>
+
+            {user?.qfConnected ? (
+              <View style={styles.streakNumbers}>
+                <View style={styles.streakMain}>
+                  <Text style={styles.streakFire}>📖</Text>
+                  <Text style={styles.streakCount}>
+                    {streak?.quranFoundation?.days ?? "—"}
+                  </Text>
+                  <Text style={styles.streakUnit}>days</Text>
+                </View>
+                <View style={styles.streakDivider} />
+                <View style={styles.streakBest}>
+                  <Text style={styles.streakBestLabel}>Status</Text>
+                  <Text
+                    style={[
+                      styles.streakBestCount,
+                      styles.streakBestCountSmall,
+                    ]}
+                  >
+                    {streak?.quranFoundation?.status === "ACTIVE"
+                      ? "Active"
+                      : "Syncing"}
+                  </Text>
+                </View>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={styles.connectQFBtn}
+                onPress={() => router.push("/(tabs)/profile")}
+              >
+                <Text style={styles.connectQFBtnText}>Connect Account</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {/* Partner Review Needed */}
+        {pendingReviews.length > 0 && (
+          <View style={styles.reviewCard}>
+            <Text style={styles.reviewTitle}>
+              Partner Review Needed ({pendingReviews.length})
+            </Text>
+            {pendingReviews.map((review: any) => (
+              <TouchableOpacity
+                key={review.id}
+                style={styles.reviewItem}
+                onPress={() =>
+                  router.push({
+                    pathname: "/(modals)/review",
+                    params: { sessionId: review.id },
+                  })
+                }
+              >
+                <Text style={styles.reviewItemText}>
+                  {review.partner_username} submitted a recitation
+                </Text>
+                <Text style={styles.reviewItemArrow}>›</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {/* Today's Goal */}
+        <Text style={styles.sectionTitle}>Today's Goal</Text>
+        {goal ? (
+          <View style={styles.goalCard}>
+            <View style={styles.goalHeader}>
+              <Text style={styles.goalType}>
+                {getGoalTypeLabel(goal.goal_type)}
+              </Text>
+              <Text style={styles.goalTime}>{goal.scheduled_time}</Text>
+            </View>
+            <Text style={styles.goalDetail}>
+              {goal.daily_ayah_count} ayahs · Surah {goal.current_surah}, Ayah{" "}
+              {goal.current_ayah}
+            </Text>
             <TouchableOpacity
-              key={review.id}
-              style={styles.reviewItem}
+              style={[
+                styles.reciteButton,
+                streak?.completedToday && styles.reciteButtonDone,
+              ]}
               onPress={() =>
                 router.push({
-                  pathname: "/(modals)/review",
-                  params: { sessionId: review.id },
+                  pathname: "/(modals)/recitation",
+                  params: { goalId: goal.id },
                 })
               }
+              disabled={streak?.completedToday}
             >
-              <Text style={styles.reviewItemText}>
-                {review.partner_username} submitted a recitation
+              <Text style={styles.reciteButtonText}>
+                {streak?.completedToday
+                  ? "Completed for Today"
+                  : "Start Recitation"}
               </Text>
-              <Text style={styles.reviewItemArrow}>›</Text>
             </TouchableOpacity>
-          ))}
-        </View>
-      )}
-
-      {/* Today's Goal */}
-      <Text style={styles.sectionTitle}>Today's Goal</Text>
-      {goal ? (
-        <View style={styles.goalCard}>
-          <View style={styles.goalHeader}>
-            <Text style={styles.goalType}>
-              {getGoalTypeLabel(goal.goal_type)}
-            </Text>
-            <Text style={styles.goalTime}>{goal.scheduled_time}</Text>
           </View>
-          <Text style={styles.goalDetail}>
-            {goal.daily_ayah_count} ayahs · Surah {goal.current_surah}, Ayah{" "}
-            {goal.current_ayah}
-          </Text>
-
-          <TouchableOpacity
-            style={[
-              styles.reciteButton,
-              streak?.completedToday && styles.reciteButtonDone,
-            ]}
-            onPress={() =>
-              router.push({
-                pathname: "/(modals)/recitation",
-                params: { goalId: goal.id },
-              })
-            }
-            disabled={streak?.completedToday}
-          >
-            <Text style={styles.reciteButtonText}>
-              {streak?.completedToday
-                ? "Completed for Today"
-                : "Start Recitation"}
+        ) : (
+          <View style={styles.noGoalCard}>
+            <Text style={styles.noGoalTitle}>No goal set yet</Text>
+            <Text style={styles.noGoalSub}>
+              Set your monthly recitation goal to get started
             </Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <View style={styles.noGoalCard}>
-          <Text style={styles.noGoalTitle}>No goal set yet</Text>
-          <Text style={styles.noGoalSub}>
-            Set your monthly recitation goal to get started
-          </Text>
-          <TouchableOpacity
-            style={styles.setGoalButton}
-            onPress={() => router.push("/(modals)/goal-setup")}
-          >
-            <Text style={styles.setGoalButtonText}>Set Goal</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+            <TouchableOpacity
+              style={styles.setGoalButton}
+              onPress={() => router.push("/(modals)/goal-setup")}
+            >
+              <Text style={styles.setGoalButtonText}>Set Goal</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
-      <View style={{ height: 40 }} />
-    </ScrollView>
+        <View style={{ height: 40 }} />
+      </ScrollView>
+
+      {/* Lock overlay — OUTSIDE ScrollView, sits on top of everything */}
+      {goal &&
+        !streak?.completedToday &&
+        isRecitationTime(goal.scheduled_time) && (
+          <View style={styles.lockOverlay}>
+            <View style={styles.lockCard}>
+              <Text style={styles.lockArabic}>أَقِمِ ٱلصَّلَوٰةَ</Text>
+              <Text style={styles.lockArabicSub}>
+                It is time for your recitation
+              </Text>
+              <View style={styles.lockIconContainer}>
+                <Text style={styles.lockIcon}>🔒</Text>
+              </View>
+              <Text style={styles.lockTitle}>Recite to Unlock</Text>
+              <Text style={styles.lockDesc}>
+                Complete today's recitation of{" "}
+                <Text style={styles.lockDescBold}>
+                  {goal.daily_ayah_count} ayahs
+                </Text>{" "}
+                to continue
+              </Text>
+              <TouchableOpacity
+                style={styles.lockButton}
+                onPress={() =>
+                  router.push({
+                    pathname: "/(modals)/recitation",
+                    params: { goalId: goal.id },
+                  })
+                }
+              >
+                <Text style={styles.lockButtonText}>Start Recitation</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.lockDismiss}
+                onPress={() =>
+                  Alert.alert(
+                    "Skip Today?",
+                    "You cannot skip this until you meet your target for the day.",
+                    [
+                      { text: "Recite Now", style: "cancel" },
+                      { text: "Skip", style: "destructive", onPress: () => {} },
+                    ],
+                  )
+                }
+              >
+                <Text style={styles.lockDismissText}>Skip for now</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+    </View>
   );
 }
 
@@ -568,5 +642,95 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontWeight: "700",
     fontSize: 15,
+  },
+  lockOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.85)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  lockCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 24,
+    padding: 28,
+    width: "100%",
+    alignItems: "center",
+  },
+  lockArabic: {
+    fontFamily: "Amiri_400Regular",
+    fontSize: 22,
+    color: COLORS.primary,
+    textAlign: "center",
+    marginBottom: 4,
+  },
+  lockArabicSub: {
+    fontSize: 13,
+    color: COLORS.textLight,
+    textAlign: "center",
+    marginBottom: 20,
+    fontStyle: "italic",
+  },
+  lockIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: COLORS.background,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+    borderWidth: 3,
+    borderColor: COLORS.primary,
+  },
+  lockIcon: {
+    fontSize: 36,
+  },
+  lockTitle: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: COLORS.text,
+    marginBottom: 8,
+  },
+  lockDesc: {
+    fontSize: 14,
+    color: COLORS.textLight,
+    textAlign: "center",
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  lockDescBold: {
+    color: COLORS.primary,
+    fontWeight: "700",
+  },
+  lockButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 48,
+    width: "100%",
+    alignItems: "center",
+    marginBottom: 12,
+    elevation: 4,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  lockButtonText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  lockDismiss: {
+    paddingVertical: 8,
+  },
+  lockDismissText: {
+    fontSize: 13,
+    color: COLORS.textLight,
+    textDecorationLine: "underline",
   },
 });

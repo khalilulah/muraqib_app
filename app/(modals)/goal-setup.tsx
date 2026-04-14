@@ -13,6 +13,8 @@ import { router } from "expo-router";
 import api from "../../src/services/api";
 import { COLORS } from "../../src/constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import { Platform } from "react-native";
 
 type GoalType = "ayah_count" | "juz" | "quran" | "random" | "fixed";
 
@@ -55,8 +57,6 @@ const GOAL_OPTIONS: GoalOption[] = [
   },
 ];
 
-const TIMES = ["05:00", "06:00", "07:00", "18:00", "20:00", "21:00", "22:00"];
-
 export default function GoalSetupScreen() {
   const [selectedType, setSelectedType] = useState<GoalType | null>(null);
   const [count, setCount] = useState("");
@@ -65,6 +65,14 @@ export default function GoalSetupScreen() {
 
   const selectedOption = GOAL_OPTIONS.find((o) => o.type === selectedType);
 
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [selectedTime, setSelectedTime] = useState(new Date());
+
+  function formatTime(date: Date): string {
+    const h = date.getHours().toString().padStart(2, "0");
+    const m = date.getMinutes().toString().padStart(2, "0");
+    return `${h}:${m}`;
+  }
   async function handleSave() {
     if (!selectedType) {
       Alert.alert("Error", "Please select a goal type");
@@ -92,7 +100,7 @@ export default function GoalSetupScreen() {
       // After successful goal creation, before navigating home:
       await AsyncStorage.removeItem("cached_daily_verses");
       Alert.alert("Done", "Your goal has been set!", [
-        { text: "OK", onPress: () => router.back() },
+        { text: "OK", onPress: () => router.replace("(tabs)/home") },
       ]);
     } catch (error: any) {
       Alert.alert(
@@ -174,32 +182,31 @@ export default function GoalSetupScreen() {
         )}
 
         {/* Time Selection */}
-        <Text style={styles.sectionLabel}>Daily reminder time</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.timeRow}
+        {/* Time Selection */}
+        <Text style={styles.sectionLabel}>Daily recitation time</Text>
+        <TouchableOpacity
+          style={styles.timePickerBtn}
+          onPress={() => setShowTimePicker(true)}
         >
-          {TIMES.map((time) => (
-            <TouchableOpacity
-              key={time}
-              style={[
-                styles.timeChip,
-                scheduledTime === time && styles.timeChipSelected,
-              ]}
-              onPress={() => setScheduledTime(time)}
-            >
-              <Text
-                style={[
-                  styles.timeChipText,
-                  scheduledTime === time && styles.timeChipTextSelected,
-                ]}
-              >
-                {time}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+          <Text style={styles.timePickerText}>{formatTime(selectedTime)}</Text>
+          <Text style={styles.timePickerHint}>Tap to change</Text>
+        </TouchableOpacity>
+
+        {showTimePicker && (
+          <DateTimePicker
+            value={selectedTime}
+            mode="time"
+            is24Hour={true}
+            display={Platform.OS === "ios" ? "spinner" : "default"}
+            onChange={(event, date) => {
+              setShowTimePicker(false);
+              if (date) {
+                setSelectedTime(date);
+                setScheduledTime(formatTime(date));
+              }
+            }}
+          />
+        )}
 
         {/* Save Button */}
         <TouchableOpacity
@@ -243,6 +250,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
     color: COLORS.text,
+  },
+  timePickerBtn: {
+    backgroundColor: COLORS.white,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: COLORS.primary,
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  timePickerText: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: COLORS.primary,
+  },
+  timePickerHint: {
+    fontSize: 12,
+    color: COLORS.textLight,
+    marginTop: 4,
   },
   content: {
     padding: 20,

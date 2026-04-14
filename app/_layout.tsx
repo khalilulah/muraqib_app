@@ -67,12 +67,6 @@ export default function RootLayout() {
   }, [loadFromStorage]);
 
   useEffect(() => {
-    if (fontsLoaded) {
-      SplashScreen.hideAsync();
-    }
-  }, [fontsLoaded]);
-
-  useEffect(() => {
     if (fontsLoaded || fontError) {
       SplashScreen.hideAsync();
     }
@@ -84,6 +78,12 @@ export default function RootLayout() {
     if (hasNavigated.current) return;
 
     const data = response.notification.request.content.data as any;
+
+    if (data?.type === "RECITATION_REMINDER") {
+      hasNavigated.current = true;
+      router.push("/(tabs)/home");
+      // The overlay will show automatically since it's recitation time
+    }
 
     if (data?.type === "PARTNER_REVIEW" && data?.sessionId) {
       hasNavigated.current = true;

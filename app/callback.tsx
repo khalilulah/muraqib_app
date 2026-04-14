@@ -14,7 +14,7 @@ export default function CallbackScreen() {
     const init = async () => {
       try {
         const res = await axios.get(
-          "https://muraqib-server.onrender.com/api/users/me",
+          "https://muraqib-server.vercel.app/api/users/me",
           {
             withCredentials: true,
           },

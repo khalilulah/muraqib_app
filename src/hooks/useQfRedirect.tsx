@@ -27,7 +27,7 @@ export const useQfRedirect = () => {
 
       try {
         const res = await axios.get<QfResponse>(
-          `https://muraqib-server.onrender.com/api/auth/qf/callback`,
+          `https://muraqib-server.vercel.app/api/auth/qf/callback`,
           {
             params: { code, state },
           },
