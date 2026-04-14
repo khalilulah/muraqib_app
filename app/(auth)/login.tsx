@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  ScrollView,
 } from "react-native";
 import { useState } from "react";
 import { router } from "expo-router";
@@ -46,64 +47,76 @@ export default function LoginScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={{ flex: 1 }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.logo}>مُرَاقِب</Text>
-        <Text style={styles.tagline}>Your Quran Accountability Partner</Text>
-      </View>
+      <ScrollView
+        contentContainerStyle={{ flexGrow: 1 }}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.container}>
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={styles.logo}>مُرَاقِب</Text>
+            <Text style={styles.tagline}>
+              Your Quran Accountability Partner
+            </Text>
+          </View>
 
-      {/* Form */}
-      <View style={styles.form}>
-        <Text style={styles.title}>Welcome Back</Text>
+          {/* Form */}
+          <View style={styles.form}>
+            <Text style={styles.title}>Welcome Back</Text>
 
-        <TextInput
-          style={styles.input}
-          placeholder="Email"
-          placeholderTextColor={COLORS.textLight}
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
-          autoCapitalize="none"
-        />
+            <TextInput
+              style={styles.input}
+              placeholder="Email"
+              placeholderTextColor={COLORS.textLight}
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
 
-        <View style={styles.inputWrapper}>
-          <TextInput
-            style={styles.inputFlex}
-            placeholder="Password"
-            placeholderTextColor={COLORS.textLight}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry={!showPassword}
-          />
-          <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-            <Text style={styles.eyeText}>{showPassword ? "Hide" : "Show"}</Text>
-          </TouchableOpacity>
+            <View style={styles.inputWrapper}>
+              <TextInput
+                style={styles.inputFlex}
+                placeholder="Password"
+                placeholderTextColor={COLORS.textLight}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+              />
+              <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                <Text style={styles.eyeText}>
+                  {showPassword ? "Hide" : "Show"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.button, loading && styles.buttonDisabled]}
+              onPress={handleLogin}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color={COLORS.white} />
+              ) : (
+                <Text style={styles.buttonText}>Login</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.link}
+              onPress={() => router.push("/(auth)/register")}
+            >
+              <Text style={styles.linkText}>
+                Don't have an account?{" "}
+                <Text style={styles.linkBold}>Register</Text>
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
-
-        <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleLogin}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color={COLORS.white} />
-          ) : (
-            <Text style={styles.buttonText}>Login</Text>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.link}
-          onPress={() => router.push("/(auth)/register")}
-        >
-          <Text style={styles.linkText}>
-            Don't have an account? <Text style={styles.linkBold}>Register</Text>
-          </Text>
-        </TouchableOpacity>
-      </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -115,7 +128,7 @@ const styles = StyleSheet.create({
     paddingBottom: 30,
   },
   header: {
-    flex: 0.4,
+    paddingVertical: 40,
     backgroundColor: COLORS.primary,
     justifyContent: "center",
     alignItems: "center",
@@ -134,7 +147,7 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   form: {
-    flex: 0.6,
+    flex: 1,
     paddingHorizontal: 28,
     paddingTop: 36,
   },
