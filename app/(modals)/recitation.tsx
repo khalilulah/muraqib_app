@@ -83,13 +83,6 @@ export default function RecitationScreen() {
 
   useEffect(() => {
     loadVerses();
-    return () => {
-      cleanup().catch(console.error);
-    };
-  }, []);
-
-  useEffect(() => {
-    loadVerses();
     initWhisperModel();
     return () => {
       cleanup().catch(console.error);
@@ -195,11 +188,20 @@ export default function RecitationScreen() {
       setState("ready");
       prefetchAudios(freshVerses);
     } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error.response?.data?.message ?? "Failed to load verses",
-        [{ text: "Go Back", onPress: () => router.back() }],
-      );
+      const status = error.response?.status;
+      const message = error.response?.data?.message ?? "Failed to load verses";
+
+      if (status === 400 && message.toLowerCase().includes("expired")) {
+        Alert.alert(
+          "Goal Expired",
+          "This goal has expired. Please create a new one.",
+          [{ text: "Go Back", onPress: () => router.back() }],
+        );
+      } else {
+        Alert.alert("Error", message, [
+          { text: "Go Back", onPress: () => router.back() },
+        ]);
+      }
       setState("error");
     }
   }

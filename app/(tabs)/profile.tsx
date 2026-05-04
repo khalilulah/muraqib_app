@@ -67,9 +67,9 @@ export default function ProfileScreen() {
         api.get("/api/recitation/history?limit=5"),
       ];
 
-      if (user?.qfConnected) {
-        requests.push(api.get("/api/recitation/activity-calendar"));
-      }
+      // if (user?.qfConnected) {
+      //   requests.push(api.get("/api/recitation/activity-calendar"));
+      // }
 
       const results = await Promise.all(requests);
       setStreak(results[0].data.data);
@@ -295,138 +295,8 @@ export default function ProfileScreen() {
       </View>
 
       {/* ── QF Connection ──────────────────────────────────────────────────── */}
-      <View style={styles.section}>
-        <Text style={styles.sectionLabel}>QURAN FOUNDATION</Text>
-
-        {isQFConnected ? (
-          <View style={styles.qfConnectedCard}>
-            {/* Logo + status */}
-            <View style={styles.qfConnectedTop}>
-              <View style={styles.qfLogo}>
-                <Text style={styles.qfLogoText}>Q</Text>
-              </View>
-              <View style={styles.qfConnectedInfo}>
-                <Text style={styles.qfConnectedTitle}>Quran.com</Text>
-                <View style={styles.qfConnectedStatus}>
-                  <View style={styles.qfConnectedDot} />
-                  <Text style={styles.qfConnectedStatusText}>
-                    Connected & syncing
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            {/* QF streak pill */}
-            {streak?.quranFoundation && (
-              <View style={styles.qfStreakPill}>
-                <Text style={styles.qfStreakPillEmoji}>📖</Text>
-                <Text style={styles.qfStreakPillCount}>
-                  {streak.quranFoundation.days}
-                </Text>
-                <Text style={styles.qfStreakPillLabel}>
-                  day streak on Quran.com
-                </Text>
-                <View
-                  style={[
-                    styles.qfStatusBadge,
-                    streak.quranFoundation.status === "ACTIVE"
-                      ? styles.qfStatusActive
-                      : styles.qfStatusBroken,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.qfStatusText,
-                      streak.quranFoundation.status === "ACTIVE"
-                        ? styles.qfStatusTextActive
-                        : styles.qfStatusTextBroken,
-                    ]}
-                  >
-                    {streak.quranFoundation.status === "ACTIVE"
-                      ? "Active"
-                      : "Broken"}
-                  </Text>
-                </View>
-              </View>
-            )}
-          </View>
-        ) : (
-          <TouchableOpacity
-            style={styles.qfConnectCard}
-            onPress={connectQF}
-            disabled={connectingQF}
-            activeOpacity={0.85}
-          >
-            <View style={styles.qfConnectLeft}>
-              <View style={styles.qfLogoDim}>
-                <Text style={styles.qfLogoTextDim}>Q</Text>
-              </View>
-              <View>
-                <Text style={styles.qfConnectTitle}>Quran.com</Text>
-                <Text style={styles.qfConnectSub}>
-                  Sync your streak across devices
-                </Text>
-              </View>
-            </View>
-            <View style={styles.qfConnectBtn}>
-              {connectingQF ? (
-                <ActivityIndicator size="small" color={COLORS.white} />
-              ) : (
-                <Text style={styles.qfConnectBtnText}>Connect</Text>
-              )}
-            </View>
-          </TouchableOpacity>
-        )}
-      </View>
 
       {/* ── QF Activity Calendar ───────────────────────────────────────────── */}
-      {qfConnected && (
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>ACTIVITY CALENDAR</Text>
-          <View style={styles.calendarCard}>
-            {activityDays.length === 0 ? (
-              <View style={styles.calendarEmpty}>
-                <Text style={styles.calendarEmptyIcon}>📅</Text>
-                <Text style={styles.calendarEmptyText}>
-                  Complete a recitation to see your activity here
-                </Text>
-              </View>
-            ) : (
-              <>
-                <View style={styles.calendarGrid}>
-                  {generateCalendarDots(activityDays)}
-                </View>
-                <View style={styles.calendarFooter}>
-                  <Text style={styles.calendarLegend}>
-                    Last 30 days · {activityDays.length} days active
-                  </Text>
-                  <View style={styles.calendarLegendRow}>
-                    <View style={styles.calendarDotInactive} />
-                    <Text style={styles.calendarLegendText}>Missed</Text>
-                    <View style={styles.calendarDotActive} />
-                    <Text style={styles.calendarLegendText}>Done</Text>
-                  </View>
-                </View>
-                {activityDays.length > 0 && (
-                  <View style={styles.lastActivity}>
-                    <Text style={styles.lastActivityLabel}>
-                      Last recitation
-                    </Text>
-                    <Text style={styles.lastActivityDate}>
-                      {formatDate(activityDays[activityDays.length - 1]!.date)}
-                    </Text>
-                    <Text style={styles.lastActivityDetail}>
-                      {activityDays[activityDays.length - 1]!.ranges?.join(
-                        ", ",
-                      )}
-                    </Text>
-                  </View>
-                )}
-              </>
-            )}
-          </View>
-        </View>
-      )}
 
       {/* ── Recent Sessions ────────────────────────────────────────────────── */}
       <View style={styles.section}>

@@ -13,6 +13,12 @@ import { router } from "expo-router";
 import { useAuthStore } from "../../src/store/auth.store";
 import api from "../../src/services/api";
 import { COLORS } from "../../src/constants";
+import {
+  enableFocusMode,
+  disableFocusMode,
+  isFocusModeEnabled,
+  openAccessibilitySettings,
+} from "../../src/hooks/useFocusMode";
 
 interface Streak {
   currentStreak: number;
@@ -37,6 +43,7 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [pendingReviews, setPendingReviews] = useState<any[]>([]);
+  const [accessibilityEnabled, setAccessibilityEnabled] = useState(false);
 
   async function fetchData() {
     try {
@@ -74,12 +81,37 @@ export default function HomeScreen() {
 
   useEffect(() => {
     fetchData();
+    checkAccessibility();
+
     const interval = setInterval(() => {
       fetchData();
+      checkAccessibility();
     }, 60 * 1000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      disableFocusMode(); // Always disable when leaving home screen
+    };
   }, []);
+
+  useEffect(() => {
+    if (!goal || streak?.completedToday) {
+      disableFocusMode();
+      return;
+    }
+    if (isRecitationTime(goal.scheduled_time)) {
+      if (accessibilityEnabled) {
+        enableFocusMode();
+      }
+    } else {
+      disableFocusMode();
+    }
+  }, [goal, streak, accessibilityEnabled]);
+
+  async function checkAccessibility() {
+    const enabled = await isFocusModeEnabled();
+    setAccessibilityEnabled(enabled);
+  }
 
   function getGreeting() {
     const hour = new Date().getHours();
@@ -159,71 +191,20 @@ export default function HomeScreen() {
               </View>
             </View>
           </View>
-
-          <View
-            style={[
-              styles.streakCard,
-              styles.qfStreakCard,
-              !user?.qfConnected && styles.qfStreakCardDisconnected,
-            ]}
-          >
-            <View style={styles.streakCardHeader}>
-              <Text style={styles.streakCardTitle}>Quran.com</Text>
-              <View
-                style={[
-                  styles.syncBadge,
-                  user?.qfConnected
-                    ? styles.syncBadgeActive
-                    : styles.syncBadgeInactive,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.syncBadgeText,
-                    user?.qfConnected
-                      ? styles.syncBadgeTextActive
-                      : styles.syncBadgeTextInactive,
-                  ]}
-                >
-                  {user?.qfConnected ? "Synced" : "Not linked"}
-                </Text>
-              </View>
-            </View>
-
-            {user?.qfConnected ? (
-              <View style={styles.streakNumbers}>
-                <View style={styles.streakMain}>
-                  <Text style={styles.streakFire}>📖</Text>
-                  <Text style={styles.streakCount}>
-                    {streak?.quranFoundation?.days ?? "—"}
-                  </Text>
-                  <Text style={styles.streakUnit}>days</Text>
-                </View>
-                <View style={styles.streakDivider} />
-                <View style={styles.streakBest}>
-                  <Text style={styles.streakBestLabel}>Status</Text>
-                  <Text
-                    style={[
-                      styles.streakBestCount,
-                      styles.streakBestCountSmall,
-                    ]}
-                  >
-                    {streak?.quranFoundation?.status === "ACTIVE"
-                      ? "Active"
-                      : "Syncing"}
-                  </Text>
-                </View>
-              </View>
-            ) : (
-              <TouchableOpacity
-                style={styles.connectQFBtn}
-                onPress={() => router.push("/(tabs)/profile")}
-              >
-                <Text style={styles.connectQFBtnText}>Connect Account</Text>
-              </TouchableOpacity>
-            )}
-          </View>
         </View>
+
+        {!accessibilityEnabled && goal && !streak?.completedToday && (
+          <TouchableOpacity
+            style={styles.accessibilityBanner}
+            onPress={openAccessibilitySettings}
+          >
+            <Text style={styles.accessibilityBannerText}>
+              Enable Focus Mode in Accessibility Settings to restrict other apps
+              during recitation time
+            </Text>
+            <Text style={styles.accessibilityBannerLink}>Enable Now →</Text>
+          </TouchableOpacity>
+        )}
 
         {/* Partner Review Needed */}
         {pendingReviews.length > 0 && (
@@ -512,6 +493,27 @@ const styles = StyleSheet.create({
   },
   streakBestCountSmall: {
     fontSize: 11,
+  },
+
+  accessibilityBanner: {
+    backgroundColor: "#FEF3C7",
+    marginHorizontal: 20,
+    marginTop: 12,
+    borderRadius: 12,
+    padding: 14,
+    borderLeftWidth: 4,
+    borderLeftColor: "#F59E0B",
+  },
+  accessibilityBannerText: {
+    fontSize: 13,
+    color: COLORS.text,
+    lineHeight: 18,
+    marginBottom: 6,
+  },
+  accessibilityBannerLink: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#D97706",
   },
   connectQFBtn: {
     backgroundColor: COLORS.background,
