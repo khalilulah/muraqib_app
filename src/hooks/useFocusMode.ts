@@ -19,5 +19,10 @@ export async function isFocusModeEnabled(): Promise<boolean> {
 
 export function openAccessibilitySettings(): void {
   if (Platform.OS !== "android") return;
+  console.log("[FocusMode] native module:", NativeModules.FocusMode);
+  if (!FocusMode) {
+    console.warn("[FocusMode] Native module not available — rebuild required");
+    return;
+  }
   FocusMode?.openAccessibilitySettings();
 }
