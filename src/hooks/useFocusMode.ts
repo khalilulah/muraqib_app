@@ -1,6 +1,9 @@
 import { NativeModules, Platform } from "react-native";
 
 const { FocusMode } = NativeModules;
+// Log ALL available native modules so we can see what's registered
+console.log("[NativeModules] all keys:", Object.keys(NativeModules));
+console.log("[FocusMode] module:", FocusMode);
 
 export async function enableFocusMode(): Promise<void> {
   if (Platform.OS !== "android") return;

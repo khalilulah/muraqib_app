@@ -12,11 +12,12 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
+      "package": "com.khalilll.muraqib_app",
       "permissions": [
         "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
-      ],
-      "package": "com.khalilll.muraqib_app"
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.BIND_ACCESSIBILITY_SERVICE"
+      ]
     },
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -44,7 +45,8 @@
           "color": "#1B4332"
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "./plugins/withFocusMode"
     ],
     "extra": {
       "router": {},

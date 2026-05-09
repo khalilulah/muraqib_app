@@ -10,11 +10,12 @@ import {
   Alert,
   ScrollView,
 } from "react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { router } from "expo-router";
 import { useAuthStore } from "../../src/store/auth.store";
 import api from "../../src/services/api";
 import { COLORS } from "../../src/constants";
+import { NativeModules } from "react-native";
 
 export default function LoginScreen() {
   const [email, setEmail] = useState("");
@@ -23,6 +24,10 @@ export default function LoginScreen() {
   const setAuth = useAuthStore((state) => state.setAuth);
   const [showPassword, setShowPassword] = useState(false);
 
+  useEffect(() => {
+    console.log("[NativeModules] keys:", Object.keys(NativeModules));
+    console.log("[FocusMode]:", NativeModules.FocusMode);
+  }, []);
   async function handleLogin() {
     if (!email || !password) {
       Alert.alert("Error", "Please fill in all fields");
